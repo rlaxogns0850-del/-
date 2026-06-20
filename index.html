@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>미스터리 경매장</title>
+  <!-- Socket.io 클라이언트 라이브러리 (서버에서 자동 제공) -->
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    /* ── 디자인 토큰 ─────────────────────────────────────── */
+    :root {
+      --bg:          #0e0b1a;        /* 깊은 밤하늘 */
+      --surface:     #1a1530;        /* 카드 배경 */
+      --surface2:    #231e3d;        /* 보조 배경 */
+      --border:      #3a3060;        /* 테두리 */
+      --gold:        #f0c040;        /* 골드 강조 */
+      --gold-dim:    #8a6a10;
+      --purple:      #9b72e8;        /* 마법 보라 */
+      --red:         #e85555;        /* 경고 */
+      --green:       #4ecb71;        /* 성공 */
+      --text:        #e8e0ff;        /* 기본 텍스트 */
+      --text-muted:  #7a6fa0;        /* 흐린 텍스트 */
+      --radius:      10px;
+      --font-display: 'Georgia', serif;
+      --font-body:    'Segoe UI', system-ui, sans-serif;
+    }
+
+    /* ── 리셋 & 기본 ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hidden { display: none !important; }
+
+    h1, h2, h3 {
+      font-family: var(--font-display);
+      color: var(--gold);
+      letter-spacing: 0.03em;
+    }
+
+    /* ── 공통 카드/버튼 ──────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+
+    input[type="text"], input[type="number"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 1rem;
+      width: 100%;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input:focus { border-color: var(--purple); }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      padding: 10px 22px;
+      font-weight: 600;
+      transition: opacity .15s, transform .1s;
+    }
+    button:hover:not(:disabled)  { opacity: .85; transform: translateY(-1px); }
+    button:active:not(:disabled) { transform: translateY(0); }
+    button:disabled { opacity: .35; cursor: not-allowed; }
+
+    .btn-primary { background: var(--purple); color: #fff; }
+    .btn-gold    { background: var(--gold);   color: #1a1530; }
+    .btn-danger  { background: var(--red);    color: #fff; }
+
+    /* ── 에러 메시지 ──────────────────────────────────────── */
+    #error-msg {
+      background: rgba(232,85,85,.15);
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      color: var(--red);
+      padding: 10px 14px;
+      font-size: .9rem;
+      margin-top: 8px;
+    }
+
+    /* ════════════════════════════════════════════════════════
+       화면 1: 로비
+    ════════════════════════════════════════════════════════ */
+    #screen-lobby {
+      width: 100%;
+      max-width: 420px;
+      padding: 16px;
+    }
+
+    .lobby-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .lobby-header h1 {
+      font-size: 2rem;
+      text-shadow: 0 0 20px rgba(240,192,64,.4);
+    }
+    .lobby-header p {
+      color: var(--text-muted);
+      margin-top: 6px;
+      font-size: .9rem;
+    }
+
+    .lobby-section { margin-bottom: 20px; }
+    .lobby-section label {
+      display: block;
+      font-size: .8rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-muted);
+      font-size: .8rem;
+      margin: 24px 0;
+    }
+    .divider::before, .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .lobby-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .lobby-actions button { flex: 1; }
+
+    /* ════════════════════════════════════════════════════════
+       화면 2: 대기실
+    ════════════════════════════════════════════════════════ */
+    #screen-waiting {
+      width: 100%;
+      max-width: 480px;
+      padding: 16px;
+    }
+
+    .room-code {
+      text-align: center;
+      background: var(--surface2);
+      border: 1px dashed var(--gold-dim);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .room-code span {
+      display: block;
+      font-size: 2.2rem;
+      font-family: 'Courier New', monospace;
+      color: var(--gold);
+      letter-spacing: .15em;
+    }
+    .room-code small {
+      color: var(--text-muted);
+      font-size: .8rem;
+    }
+
+    #waiting-players {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 12px 0 16px;
+    }
+    #waiting-players li {
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: .95rem;
+    }
+
+    #waiting-status {
+      color: var(--text-muted);
+      font-size: .85rem;
+      margin-bottom: 16px;
+    }
+
+    /* ════════════════════════════════════════════════════════
+       화면 3: 경매장 (메인 게임 화면)
+    ════════════════════════════════════════════════════════ */
+    #screen-auction {
+      width: 100%;
+      max-width: 900px;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      grid-template-rows: auto 1fr;
+      gap: 16px;
+    }
+
+    /* 경매 헤더 (아이템 + 타이머) */
+    .auction-header {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .auction-header .round-badge {
+      display: inline-block;
+      background: var(--purple);
+      color: #fff;
+      font-size: .75rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+      letter-spacing: .05em;
+    }
+    .item-showcase {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .item-icon {
+      font-size: 3.5rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .item-info h2 {
+      font-size: 1.5rem;
+      margin-bottom: 6px;
+    }
+    .item-info p {
+      color: var(--text-muted);
+      font-size: .9rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+
+    /* 타이머 */
+    .timer-section {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .timer {
+      font-size: 4rem;
+      font-weight: 700;
+      font-family: 'Courier New', monospace;
+      color: var(--green);
+      line-height: 1;
+      transition: color .3s;
+    }
+    .timer-urgent { color: var(--red) !important; animation: pulse 0.5s infinite alternate; }
+    @keyframes pulse { from { opacity: 1; } to { opacity: .5; } }
+
+    .timer-label { color: var(--text-muted); font-size: .8rem; text-transform: uppercase; }
+
+    /* 현재 입찰 현황 */
+    .bid-status {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      text-align: center;
+      margin-top: 12px;
+    }
+    .bid-status .bid-amount {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--gold);
+    }
+    .bid-status .bid-meta {
+      color: var(--text-muted);
+      font-size: .8rem;
+      margin-top: 4px;
+    }
+
+    /* 입찰 폼 */
+    .bid-form {
+      grid-column: 1;
+      grid-row: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .bid-input-row {
+      display: flex;
+      gap: 8px;
+    }
+    .bid-input-row input { flex: 1; }
+
+    /* 라운드 결과 배너 */
+    .result-banner {
+      border-radius: var(--radius);
+      padding: 12px 18px;
+      font-weight: 600;
+      font-size: 1rem;
+      text-align: center;
+    }
+    .result-sold   { background: rgba(78,203,113,.15); border: 1px solid var(--green); color: var(--green); }
+    .result-unsold { background: rgba(232,85,85,.1);   border: 1px solid var(--red);   color: var(--red); }
+
+    /* 경매 로그 */
+    .log-panel {
+      grid-column: 2;
+      grid-row: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .log-panel h3 { font-size: .85rem; color: var(--text-muted); margin-bottom: 4px; }
+
+    #auction-log {
+      list-style: none;
+      overflow-y: auto;
+      max-height: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #auction-log li {
+      font-size: .8rem;
+      padding: 6px 10px;
+      border-radius: 4px;
+      background: var(--surface2);
+      border-left: 3px solid var(--border);
+      line-height: 1.4;
+    }
+    .log-bid    { border-left-color: var(--gold) !important; }
+    .log-result { border-left-color: var(--green) !important; color: var(--green); }
+    .log-round  { border-left-color: var(--purple) !important; color: var(--purple); font-weight: 600; }
+    .log-warn   { border-left-color: var(--red) !important; color: var(--red); }
+    .log-join   { border-left-color: var(--green) !important; }
+    .log-leave  { border-left-color: var(--red) !important; }
+
+    /* 플레이어 패널 */
+    #players-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .player-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: .82rem;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .player-card.me { border-color: var(--purple); }
+    .p-name { font-weight: 600; }
+    .p-gold { color: var(--gold); }
+    .p-items { color: var(--text-muted); }
+
+    /* 모바일: 단일 컬럼 */
+    @media (max-width: 640px) {
+      #screen-auction {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto;
+      }
+      .timer-section { grid-column: 1; grid-row: 2; flex-direction: row; }
+      .bid-form      { grid-column: 1; grid-row: 3; }
+      .log-panel     { grid-column: 1; grid-row: 4; }
+    }
+
+    /* ════════════════════════════════════════════════════════
+       화면 4: 최종 결과
+    ════════════════════════════════════════════════════════ */
+    #screen-result {
+      width: 100%;
+      max-width: 600px;
+      padding: 16px;
+    }
+
+    #screen-result h2 {
+      text-align: center;
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+    }
+    #screen-result .subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: .9rem;
+      margin-bottom: 24px;
+    }
+
+    #final-scores-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .score-card {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .score-card.me { border-color: var(--gold); background: rgba(240,192,64,.07); }
+
+    .rank { font-size: 2rem; line-height: 1; flex-shrink: 0; }
+
+    .score-info strong { font-size: 1.05rem; }
+    .score-detail {
+      color: var(--text-muted);
+      font-size: .85rem;
+      margin-top: 6px;
+    }
+    .score-detail strong { color: var(--gold); font-size: 1rem; }
+
+    .score-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .item-tag {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: .75rem;
+      color: var(--purple);
+    }
+    .item-tag.empty { color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+  <!-- ════════════════════════════════════════════════════════
+       화면 1: 로비 — 닉네임 입력 및 방 생성/입장
+  ════════════════════════════════════════════════════════ -->
+  <section id="screen-lobby">
+    <div class="lobby-header">
+      <h1>✨ 미스터리 경매장</h1>
+      <p>판타지 세계의 비밀 경매 — 진짜 가치는 낙찰 후에 공개됩니다</p>
+    </div>
+
+    <div class="card">
+      <!-- 닉네임 입력 (방 만들기/입장 공통) -->
+      <div class="lobby-section">
+        <label for="input-name">닉네임</label>
+        <input type="text" id="input-name" placeholder="경매사 이름을 입력하세요" maxlength="12" />
+      </div>
+
+      <!-- 방 만들기 -->
+      <div class="lobby-section">
+        <button class="btn-primary" id="btn-create" style="width:100%">
+          🏛️ 새 경매장 열기
+        </button>
+      </div>
+
+      <div class="divider">또는 기존 경매장 입장</div>
+
+      <!-- 방 코드로 입장 -->
+      <div class="lobby-section">
+        <label for="input-room-id">방 코드</label>
+        <input type="text" id="input-room-id" placeholder="6자리 코드 입력 (예: AB12CD)" maxlength="6" />
+      </div>
+      <div class="lobby-actions">
+        <button class="btn-gold" id="btn-join">🚪 입장하기</button>
+      </div>
+
+      <!-- 에러 메시지 영역 -->
+      <div id="error-msg" class="hidden"></div>
+    </div>
+  </section>
+
+
+  <!-- ════════════════════════════════════════════════════════
+       화면 2: 대기실 — 플레이어 모집 및 게임 시작 대기
+  ════════════════════════════════════════════════════════ -->
+  <section id="screen-waiting" class="hidden">
+    <h2 style="text-align:center; margin-bottom:16px;">🏛️ 경매장 로비</h2>
+
+    <!-- 방 코드 표시 (다른 플레이어에게 알려줄 코드) -->
+    <div class="room-code">
+      <small>방 코드를 친구에게 알려주세요</small>
+      <span id="waiting-room-id">------</span>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:8px;">참가자 목록</h3>
+      <ul id="waiting-players"></ul>
+
+      <p id="waiting-status" style="color:var(--text-muted); font-size:.85rem; margin-bottom:12px;">
+        대기 중...
+      </p>
+
+      <!-- 방장에게만 보이는 시작 버튼 -->
+      <button class="btn-gold hidden" id="btn-start-game" style="width:100%">
+        ⚔️ 경매 시작 (최소 3명 필요)
+      </button>
+    </div>
+  </section>
+
+
+  <!-- ════════════════════════════════════════════════════════
+       화면 3: 경매장 — 메인 게임 플레이
+  ════════════════════════════════════════════════════════ -->
+  <section id="screen-auction" class="hidden">
+
+    <!-- 좌측: 경매 아이템 + 입찰 폼 -->
+    <div class="auction-header card">
+      <div class="round-badge" id="auction-round">라운드 1 / 5</div>
+
+      <div class="item-showcase">
+        <div class="item-icon">🔮</div>
+        <div class="item-info">
+          <h2 id="auction-item-name">???</h2>
+          <p id="auction-item-desc">신비로운 물건...</p>
+        </div>
+      </div>
+
+      <!-- 현재 최고 입찰가 -->
+      <div class="bid-status" style="margin-top:16px;">
+        <div class="bid-amount" id="auction-bid-amount">아직 없음</div>
+        <div class="bid-meta">
+          최고 입찰자: <strong id="auction-bidder">—</strong>
+        </div>
+      </div>
+
+      <!-- 라운드 결과 배너 (낙찰/유찰 공지) -->
+      <div id="round-result-banner" class="result-banner hidden" style="margin-top:12px;"></div>
+    </div>
+
+    <!-- 우측 상단: 타이머 -->
+    <div class="timer-section card">
+      <div class="timer" id="timer-display">15</div>
+      <div class="timer-label">남은 시간</div>
+
+      <!-- 참여 플레이어 상태 목록 -->
+      <div id="players-list" style="margin-top:16px; width:100%;"></div>
+    </div>
+
+    <!-- 좌측 하단: 입찰 입력 -->
+    <div class="bid-form card">
+      <h3 style="font-size:.9rem; color:var(--text-muted); margin-bottom:4px;">💰 입찰하기</h3>
+      <div class="bid-input-row">
+        <input
+          type="number"
+          id="input-bid"
+          placeholder="입찰 금액 (골드)"
+          min="1"
+          step="10"
+        />
+        <button class="btn-gold" id="btn-bid">입찰</button>
+      </div>
+      <p style="font-size:.75rem; color:var(--text-muted);">
+        Enter 키로도 입찰할 수 있습니다. 현재 최고가보다 10골드 이상 높아야 합니다.
+      </p>
+    </div>
+
+    <!-- 우측 하단: 경매 로그 -->
+    <div class="log-panel card">
+      <h3>📜 경매 기록</h3>
+      <ul id="auction-log"></ul>
+    </div>
+
+  </section>
+
+
+  <!-- ════════════════════════════════════════════════════════
+       화면 4: 최종 결과 — 순위 및 아이템 실제 가치 공개
+  ════════════════════════════════════════════════════════ -->
+  <section id="screen-result" class="hidden">
+    <h2>🏆 경매 종료</h2>
+    <p class="subtitle">아이템의 숨겨진 가치가 공개됩니다</p>
+
+    <div id="final-scores-list"></div>
+  </section>
+
+
+  <!-- ── 클라이언트 로직 ────────────────────────────────── -->
+  <script src="client.js"></script>
+</body>
+</html>
